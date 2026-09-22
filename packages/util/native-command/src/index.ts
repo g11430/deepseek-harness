@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-native-command
  */
 
-export { runNativeCommand } from './runner.ts'
+export { activateFileManagerWindow, hidesWindows, launchesDetached, runNativeCommand } from './runner.ts'
 export type { NativeCommandRunner } from './runner.ts'
 export {
   canOpenNativePath,

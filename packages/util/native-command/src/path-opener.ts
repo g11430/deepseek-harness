@@ -11,8 +11,7 @@
 
 import { release as osRelease } from 'node:os'
 import { dirname, extname } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { runNativeCommand, type NativeCommandRunner } from './runner.ts'
+import { runNativeCommand, activateFileManagerWindow, type NativeCommandRunner } from './runner.ts'
 
 /** Testable command boundary; native implementations never invoke a shell. */
 export type PathOpenerRunner = NativeCommandRunner
@@ -25,6 +24,8 @@ export interface PathOpenerInternals {
   /** Environment used for WSL markers and the desktop Linux browser convention. */
   env?: NodeJS.ProcessEnv
   run?: PathOpenerRunner
+  /** Foreground handoff for a revealed path; tests replace the Windows helper. */
+  activate?: (target: string) => void
 }
 
 /** Documents a browser renders, as opposed to ones an editor merely edits. */
@@ -257,15 +258,23 @@ export async function revealNativePath(
       windowsPath = translated.stdout.replace(/[\r\n]+$/, '')
       if (windowsPath === '') throw new Error('wslpath returned no Windows path')
     }
-    // Explorer parses commas itself; a file URI preserves commas and whitespace in the path.
-    const target = pathToFileURL(windowsPath, { windows: true }).href.replaceAll(',', '%2C')
+    // Explorer's /select takes a file-system path. A file:// URI is not
+    // equivalent here: percent-encoded names make Explorer fall back to its
+    // default location, so the request appears to succeed while showing the
+    // wrong folder. The path is passed as one argv value, which keeps spaces and
+    // commas intact without any encoding.
     try {
-      await run('explorer.exe', ['/select,', target], signal)
+      await run('explorer.exe', ['/select,', windowsPath], signal)
     } catch (error) {
       signal.throwIfAborted()
       // Explorer can exit 1 after delegating to the existing desktop process.
       if (!(error instanceof Error) || !('code' in error) || error.code !== 1) throw error
     }
+    // Selecting opens or reuses the folder's window without activating it, which
+    // leaves it behind the application the user clicked in. Read the injectable
+    // handoff only when it is present, so an injected one never reads the default.
+    if (internals.activate !== undefined) internals.activate(windowsPath)
+    else activateFileManagerWindow(windowsPath)
     return
   }
   if (manager === 'directory') {
